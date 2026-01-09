@@ -1,0 +1,26 @@
+# Python bytecode
+__pycache__/
+*.pyc
+
+# Virtual environments
+.venv/
+venv/
+
+# Packaging / build artifacts
+*.egg-info/
+dist/
+build/
+
+# Test & runtime output
+out/
+tmp/
+tmp_zip/
+
+# Logs & reports
+*.log
+*.csv
+*.json
+
+# OS junk
+.DS_Store
+
