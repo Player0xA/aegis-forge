@@ -1,0 +1,137 @@
+{
+  "schema_version": "1.0",
+  "scan_id": "1586bc44-2249-4526-af0a-5856a06c4a33",
+  "timestamp_utc": "2026-01-08T23:40:29Z",
+  "input": {
+    "input_path": "/Users/marianosanchezrojas/tools/aegis-forge/notepad_sample.zip",
+    "file_size": 185362,
+    "sha256": "3c820811bcfa8125adc03c3bce9a56cfb6ce5f131cbce36c677b6997fe775a6e",
+    "md5": "2a88265223dc2e4ae33589e5e4c127f6",
+    "file_type": "zip",
+    "notes": "Static-only. No execution. Input remains unchanged."
+  },
+  "findings": {
+    "archive": {
+      "type": "zip",
+      "member_count": 1,
+      "scanned_member_count": 1,
+      "members_scanned": [
+        {
+          "member_path": "notepad.exe",
+          "size": 327168,
+          "compressed_size": 185242,
+          "encrypted": false,
+          "bytes_read": 327168,
+          "truncated": false,
+          "hashes": {
+            "sha256": "5557eba87fa7702324d2a62c994ba5b08510ae8c93dbcc50479224833872a026",
+            "md5": "cf4f6d2d49687d9516a12665fd6bb004"
+          },
+          "findings": {
+            "ioc_counts": {
+              "urls": 3,
+              "ipv4": 2,
+              "domains": 80
+            },
+            "pe_present": true,
+            "pe_section_count": 8
+          }
+        }
+      ]
+    },
+    "iocs": {
+      "urls": [
+        "http://schemas.microsoft.com/SMI/2016/WindowsSettings",
+        "https://go.microsoft.com/fwlink/?LinkId=834783",
+        "https://go.microsoft.com/fwlink/p/?linkid=838060"
+      ],
+      "ipv4": [
+        "5.1.0.0",
+        "6.0.0.0"
+      ],
+      "domains": [
+        "ADVAPI32.dll",
+        "COMCTL32.dll",
+        "COMDLG32.dll",
+        "GDI32.dll",
+        "Microsoft.Notepad",
+        "Microsoft.Windows.Common",
+        "Microsoft.Windows.Shell.notepad",
+        "NOTEPAD.EXE",
+        "PROPSYS.dll",
+        "SHELL32.dll",
+        "System.Security.EncryptionOwners",
+        "USER32.dll",
+        "WINSPOOL.DRV",
+        "Windows.ApplicationModel.DataTransfer.Clipboard",
+        "Windows.Foundation.Uri",
+        "Windows.Security.EnterpriseData.FileProtectionManager",
+        "Windows.Security.EnterpriseData.ProtectionPolicyManager",
+        "Windows.Storage.StorageFile",
+        "Windows.System.Launcher",
+        "api-ms-win-base-util-l1-1-0.dll",
+        "api-ms-win-core-com-l1-1-0.dll",
+        "api-ms-win-core-datetime-l1-1-0.dll",
+        "api-ms-win-core-debug-l1-1-0.dll",
+        "api-ms-win-core-delayload-l1-1-0.dll",
+        "api-ms-win-core-delayload-l1-1-1.dll",
+        "api-ms-win-core-errorhandling-l1-1-0.dll",
+        "api-ms-win-core-file-l1-1-0.dll",
+        "api-ms-win-core-handle-l1-1-0.dll",
+        "api-ms-win-core-heap-l1-1-0.dll",
+        "api-ms-win-core-heap-l2-1-0.dll",
+        "api-ms-win-core-heap-obsolete-l1-1-0.dll",
+        "api-ms-win-core-interlocked-l1-1-0.dll",
+        "api-ms-win-core-largeinteger-l1-1-0.dll",
+        "api-ms-win-core-libraryloader-l1-2-0.dll",
+        "api-ms-win-core-libraryloader-l1-2-1.dll",
+        "api-ms-win-core-localization-l1-2-0.dll",
+        "api-ms-win-core-localization-obsolete-l1-2-0.dll",
+        "api-ms-win-core-memory-l1-1-0.dll",
+        "api-ms-win-core-processenvironment-l1-1-0.dll",
+        "api-ms-win-core-processthreads-l1-1-0.dll",
+        "api-ms-win-core-processthreads-l1-1-1.dll",
+        "api-ms-win-core-profile-l1-1-0.dll",
+        "api-ms-win-core-psapi-l1-1-0.dll",
+        "api-ms-win-core-registry-l1-1-0.dll",
+        "api-ms-win-core-registry-l1-1-1.dll",
+        "api-ms-win-core-registry-l2-1-0.dll",
+        "api-ms-win-core-shlwapi-legacy-l1-1-0.dll",
+        "api-ms-win-core-string-l1-1-0.dll",
+        "api-ms-win-core-string-obsolete-l1-1-0.dll",
+        "api-ms-win-core-synch-l1-1-0.dll",
+        "api-ms-win-core-sysinfo-l1-1-0.dll",
+        "api-ms-win-core-threadpool-l1-2-0.dll",
+        "api-ms-win-core-windowserrorreporting-l1-1-3.dll",
+        "api-ms-win-core-winrt-error-l1-1-0.dll",
+        "api-ms-win-core-winrt-error-l1-1-1.dll",
+        "api-ms-win-core-winrt-l1-1-0.dll",
+        "api-ms-win-core-winrt-string-l1-1-0.dll",
+        "api-ms-win-crt-private-l1-1-0.dll",
+        "api-ms-win-crt-runtime-l1-1-0.dll",
+        "api-ms-win-crt-string-l1-1-0.dll",
+        "api-ms-win-eventing-provider-l1-1-0.dll",
+        "api-ms-win-security-base-l1-1-0.dll",
+        "api-ms-win-shcore-obsolete-l1-1-0.dll",
+        "api-ms-win-shcore-path-l1-1-0.dll",
+        "api-ms-win-shcore-scaling-l1-1-1.dll",
+        "banner.cpp",
+        "comdlg32.dll",
+        "dx.Rl",
+        "edpapphelper.cpp",
+        "go.microsoft.com",
+        "kernelbase.dll",
+        "notepad.cpp",
+        "notepad.exe",
+        "notepad.pdb",
+        "nprestart.cpp",
+        "ntdll.dll",
+        "probe.autosave",
+        "s.autosave",
+        "schemas.microsoft.com",
+        "urlmon.dll"
+      ]
+    }
+  },
+  "errors": []
+}

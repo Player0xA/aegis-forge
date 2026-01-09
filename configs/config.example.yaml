@@ -1,0 +1,13 @@
+schema_version: "1.0"
+output_dir: "./out"
+workspace_dir: "./work"
+
+limits:
+  max_file_size_bytes: 200000000
+
+rar:
+  prefer_7z: true
+
+llm:
+  enabled: false
+

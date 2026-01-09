@@ -1,0 +1,26 @@
+[project]
+name = "aegis-forge"
+version = "0.1.0"
+description = "Safe-by-default first-assessment static analyzer (evidence bundle + CSV)."
+requires-python = ">=3.10"
+dependencies = [
+  "typer>=0.12.0",
+  "pydantic>=2.7.0",
+  "pyyaml>=6.0.1",
+  "rich>=13.7.0",
+]
+
+[project.optional-dependencies]
+test = ["pytest>=8.0.0", "ruff>=0.6.0"]
+
+[project.scripts]
+aegis = "aegis.cli:app"
+
+[tool.setuptools]
+# Avoid accidentally packaging unrelated top-level directories like `configs/`.
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["aegis*"]
+exclude = ["configs*", "tests*", "test*", "docs*", "scripts*", "examples*"]
+
