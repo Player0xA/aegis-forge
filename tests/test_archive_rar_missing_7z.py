@@ -13,7 +13,7 @@ def test_rar_missing_7z_is_graceful(monkeypatch, tmp_path: Path):
     rpath = tmp_path / "sample.rar"
     rpath.write_bytes(b"not a real rar")  # we only test the missing-backend error path
 
-    findings, errors = scan_path_basic(rpath)
+    findings, _, errors = scan_path_basic(rpath)
 
     # findings exists but will be sparse; we mainly care about the structured error
     assert isinstance(errors, list)

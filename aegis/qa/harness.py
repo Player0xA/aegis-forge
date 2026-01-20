@@ -54,6 +54,8 @@ def run_qa(fixtures_dir: Path, config_path: str | None) -> None:
         assert bundle["input"]["md5"], "input.md5 missing"
         assert bundle["input"]["file_size"] > 0, "input.file_size invalid"
         assert manifest.get("tool", {}).get("name") == "aegis-forge", "manifest.tool.name mismatch"
+        assert "analyzed_items" in bundle, "bundle.analyzed_items missing"
+        assert isinstance(bundle["analyzed_items"], list), "analyzed_items not a list"
 
     print(f"[QA] OK — {len(fixture_files)} fixture(s) passed. Output: {outdir}")
 

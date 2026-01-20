@@ -161,6 +161,48 @@ def imports_fingerprint_sha256(imports_list: List[Dict[str, Any]]) -> str:
     return hashlib.sha256(canonical.encode("utf-8", errors="strict")).hexdigest()
 
 
+def imphash_md5(imports_list: List[Dict[str, Any]]) -> str:
+    """
+    Classic PE imphash (MD5 based).
+    Standard:
+    - DLL names lowercased, extensions (.dll, .sys, .ocx) removed.
+    - Function names lowercased.
+    - Ordinals as "ord<n>".
+    - Format: "dll.func,dll.func,..."
+    - MD5 hash of result.
+
+    Note: This expects imports_list in the order they appear in the file
+    to be 100% accurate, though scanner.py currently sorts them for consistency.
+    """
+    items: List[str] = []
+
+    # Note: If the scanner already sorted the list, this imphash will be stable
+    # but might differ from tools that use raw IAT order.
+    for imp in (imports_list or []):
+        if not isinstance(imp, dict):
+            continue
+        dll = str(imp.get("dll", "") or "").strip().lower()
+        # strip standard extensions
+        for ext in (".dll", ".sys", ".ocx"):
+            if dll.endswith(ext):
+                dll = dll[: -len(ext)]
+                break
+
+        funcs = imp.get("functions", []) or []
+        ords = imp.get("ordinals", []) or []
+
+        # We must process functions and ordinals in the same order they were parsed
+        # In our parser, funcs are gathered, then ords.
+        for f in funcs:
+            if f:
+                items.append(f"{dll}.{str(f).lower()}")
+        for o in ords:
+            items.append(f"{dll}.ord{o}")
+
+    content = ",".join(items)
+    return hashlib.md5(content.encode("ascii", errors="replace")).hexdigest()
+
+
 def compute_pe_heuristics(pe: Dict[str, Any], data: Optional[bytes] = None) -> Dict[str, Any]:
     """
     Compute derived-only heuristic fields from parsed PE dict.
@@ -181,6 +223,7 @@ def compute_pe_heuristics(pe: Dict[str, Any], data: Optional[bytes] = None) -> D
     sec_readable = security_blob_readable(dd, data)
 
     imp_fp = imports_fingerprint_sha256(imports_list)
+    imp_hash = imphash_md5(imports_list)
 
     flags: List[str] = []
     if ep_sec:
@@ -210,6 +253,7 @@ def compute_pe_heuristics(pe: Dict[str, Any], data: Optional[bytes] = None) -> D
         "security_directory_listed": bool(sec_listed),
         "security_blob_readable": sec_readable,
         "imports_fingerprint_sha256": imp_fp,
+        "imphash": imp_hash,
 
         "flags": flags,
     }

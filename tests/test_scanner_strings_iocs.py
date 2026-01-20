@@ -5,7 +5,7 @@ from aegis.scanner import scan_path_basic
 
 def test_scan_path_basic_extracts_iocs_from_fixture():
     p = Path("tests/fixtures/benign.txt")
-    findings, errors = scan_path_basic(p)
+    findings, items, errors = scan_path_basic(p)
 
     assert "strings" in findings
     assert "iocs" in findings
@@ -16,3 +16,7 @@ def test_scan_path_basic_extracts_iocs_from_fixture():
 
     # benign fixture should not need truncation errors
     assert errors == []
+
+    assert len(items) == 1
+    assert items[0].path == "benign.txt"
+    assert items[0].provenance.data_source == "direct"

@@ -23,7 +23,7 @@ def test_zip_aes_encrypted_member_can_be_read_via_7z(tmp_path: Path):
 
     limits = ScanLimits(archive_max_members_scan=5, archive_max_member_bytes=5_000_000)
 
-    findings, errors = scan_path_basic(
+    findings, items, errors = scan_path_basic(
         zpath,
         limits=limits,
         passwords=["infected"],

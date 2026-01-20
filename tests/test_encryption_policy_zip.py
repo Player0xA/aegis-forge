@@ -15,7 +15,7 @@ def test_zip_encrypted_non_interactive_requires_password(monkeypatch, tmp_path: 
 
     monkeypatch.setattr("aegis.scanner.list_zip_members", fake_list_zip_members)
 
-    findings, errors = scan_archive_zip(
+    findings, _, errors = scan_archive_zip(
         z,
         limits=ScanLimits(),
         passwords=[],
@@ -24,5 +24,5 @@ def test_zip_encrypted_non_interactive_requires_password(monkeypatch, tmp_path: 
     )
 
     assert findings["archive"]["type"] == "zip"
-    assert any(e.get("code") == "E_ARCHIVE_ENCRYPTED_PASSWORD_REQUIRED" for e in errors)
+    assert any(e.get("code") == "E_ARCHIVE_ENCRYPTED_MEMBERS_SKIPPED" for e in errors)
     assert any(e.get("code") == "E_ARCHIVE_MEMBER_SKIPPED_ENCRYPTED" for e in errors)

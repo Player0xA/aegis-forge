@@ -14,6 +14,7 @@ from aegis.archive import (
 )
 from aegis.extract_iocs import extract_iocs_from_texts
 from aegis.extract_strings import extract_strings
+from aegis.model import AnalyzedItem, Provenance
 from aegis.pe import parse_pe_bytes
 
 
@@ -45,7 +46,10 @@ class ScanLimits:
     archive_max_members_list: int = 5000
     archive_max_members_scan: int = 25
     archive_max_member_bytes: int = 20_000_000
+    archive_max_decompressed_ratio: float = 100.0  # e.g. 1MB -> 100MB is ok
+    archive_max_cumulative_bytes: int = 100_000_000
 
+    subprocess_timeout: float = 30.0  # seconds for 7z extraction
     strings_min_len: int = 4
     strings_max_strings: int = 2000
     strings_max_total_bytes: int = 200_000
@@ -116,12 +120,15 @@ def _hash_bytes(data: bytes) -> Dict[str, str]:
         "sha256": hashlib.sha256(data).hexdigest(),
         "md5": hashlib.md5(data).hexdigest(),
     }
+
+
 def _try_zip_member_with_passwords(
     archive_path: Path,
     member_path: str,
     *,
     max_bytes: int,
     passwords: List[str],
+    timeout: float = 30.0,
 ) -> Tuple[bytes, bool, List[Dict[str, Any]], Dict[str, Any]]:
     """
     Returns (data, truncated, errors, provenance)
@@ -157,7 +164,9 @@ def _try_zip_member_with_passwords(
             ], provenance
 
         for pw in passwords:
-            data2, trunc2, errs2 = read_zip_member_bytes_via_7z(archive_path, member_path, max_bytes=max_bytes, password=pw)
+            data2, trunc2, errs2 = read_zip_member_bytes_via_7z(
+                archive_path, member_path, max_bytes=max_bytes, password=pw, timeout=timeout
+            )
             if not errs2:
                 provenance["encryption_handled"] = True
                 return data2, trunc2, [], provenance
@@ -195,14 +204,18 @@ def _try_zip_member_with_passwords(
         }
     ], provenance
 
+
 def _try_rar_member_with_passwords(
     archive_path: Path,
     member_path: str,
     *,
     max_bytes: int,
     passwords: List[str],
+    timeout: float = 30.0,
 ) -> Tuple[bytes, bool, List[Dict[str, Any]]]:
-    data, truncated, errs = read_rar_member_bytes_via_7z(archive_path, member_path, max_bytes=max_bytes, password=None)
+    data, truncated, errs = read_rar_member_bytes_via_7z(
+        archive_path, member_path, max_bytes=max_bytes, password=None, timeout=timeout
+    )
     if not errs:
         return data, truncated, []
 
@@ -211,7 +224,9 @@ def _try_rar_member_with_passwords(
         return b"", False, errs
 
     for pw in passwords:
-        data, truncated, errs2 = read_rar_member_bytes_via_7z(archive_path, member_path, max_bytes=max_bytes, password=pw)
+        data, truncated, errs2 = read_rar_member_bytes_via_7z(
+            archive_path, member_path, max_bytes=max_bytes, password=pw, timeout=timeout
+        )
         if not errs2:
             return data, truncated, []
     return b"", False, [
@@ -231,7 +246,7 @@ def scan_archive_zip(
     passwords: Optional[List[str]] = None,
     non_interactive: bool = False,
     prompt_confirm: Optional[callable] = None,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
     passwords = passwords or []
     errors: List[Dict[str, Any]] = []
 
@@ -245,8 +260,8 @@ def scan_archive_zip(
         if non_interactive:
             errors.append(
                 {
-                    "code": "E_ARCHIVE_ENCRYPTED_PASSWORD_REQUIRED",
-                    "message": "Archive contains encrypted members; provide --password/--password-file (batch/non-interactive mode).",
+                    "code": "E_ARCHIVE_ENCRYPTED_MEMBERS_SKIPPED",
+                    "message": "Archive contains encrypted members; skipping them in non-interactive mode (no passwords provided).",
                     "archive_path": str(path),
                 }
             )
@@ -254,7 +269,12 @@ def scan_archive_zip(
             if prompt_confirm is None:
                 allow = True
             else:
-                allow = bool(prompt_confirm("Encrypted members detected. Continue scanning unencrypted members?", default=True))
+                allow = bool(
+                    prompt_confirm(
+                        f"Archive '{path.name}' contains encrypted members. Scan only unencrypted ones?",
+                        default=True,
+                    )
+                )
             if not allow:
                 errors.append(
                     {
@@ -265,14 +285,22 @@ def scan_archive_zip(
                 )
                 return (
                     {
-                        "archive": {"type": "zip", "member_count": len(members), "scanned_member_count": 0, "members_scanned": []},
+                        "archive": {
+                            "type": "zip",
+                            "member_count": len(members),
+                            "scanned_member_count": 0,
+                            "members_scanned": [],
+                        },
                         "iocs": {"urls": [], "ipv4": [], "domains": []},
                     },
+                    [],
                     errors,
                 )
 
     scanned: List[Dict[str, Any]] = []
+    analyzed_items: List[AnalyzedItem] = []
     agg_urls, agg_ipv4, agg_domains = set(), set(), set()
+    cumulative_bytes = 0
 
     count_scanned = 0
     for m in members:
@@ -280,6 +308,29 @@ def scan_archive_zip(
             continue
         if count_scanned >= limits.archive_max_members_scan:
             break
+        if cumulative_bytes >= limits.archive_max_cumulative_bytes:
+            errors.append(
+                {
+                    "code": "E_ARCHIVE_CUMULATIVE_LIMIT_REACHED",
+                    "message": f"Cumulative output bytes limit reached ({limits.archive_max_cumulative_bytes}). Skipping remaining members.",
+                    "archive_path": str(path),
+                }
+            )
+            break
+
+        # Check compression ratio if psize is known
+        if m.compressed_size and m.compressed_size > 0:
+            ratio = m.size / m.compressed_size
+            if ratio > limits.archive_max_decompressed_ratio:
+                errors.append(
+                    {
+                        "code": "E_ARCHIVE_MEMBER_SKIPPED_RATIO",
+                        "message": f"Member skipped due to high compression ratio ({ratio:.2f} > {limits.archive_max_decompressed_ratio}). Potential zip bomb.",
+                        "archive_path": str(path),
+                        "member_path": m.path,
+                    }
+                )
+                continue
 
         if m.encrypted and not passwords and non_interactive:
             errors.append(
@@ -293,11 +344,17 @@ def scan_archive_zip(
             continue
 
         data, truncated, read_errors, prov = _try_zip_member_with_passwords(
-            path, m.path, max_bytes=limits.archive_max_member_bytes, passwords=passwords
+            path,
+            m.path,
+            max_bytes=limits.archive_max_member_bytes,
+            passwords=passwords,
+            timeout=limits.subprocess_timeout,
         )
         if read_errors:
             errors.extend(read_errors)
             continue
+
+        cumulative_bytes += len(data)
 
         member_hashes = _hash_bytes(data)
         member_findings, member_errs = scan_bytes_basic(data, limits=limits)
@@ -336,6 +393,21 @@ def scan_archive_zip(
             }
         )
 
+        analyzed_items.append(
+            AnalyzedItem(
+                path=m.path,
+                bytes_read=len(data),
+                hashes=member_hashes,
+                truncated=bool(truncated),
+                format="pe" if member_findings.get("pe", {}).get("present") else "unknown",
+                provenance=Provenance(
+                    data_source=prov.get("extraction_backend") or "zipfile",
+                    encrypted_detected=bool(prov.get("zip_aes_detected", False)) or m.encrypted,
+                    encryption_handled=bool(prov.get("encryption_handled", False)),
+                ),
+            )
+        )
+
         count_scanned += 1
         if truncated:
             errors.append(
@@ -346,6 +418,15 @@ def scan_archive_zip(
                     "member_path": m.path,
                 }
             )
+
+    if not scanned and members:
+        errors.append(
+            {
+                "code": "E_ARCHIVE_NO_MEMBERS_SCANNED",
+                "message": "No archive members were successfully scanned (all skipped or failed).",
+                "archive_path": str(path),
+            }
+        )
 
     findings = {
         "archive": {
@@ -360,7 +441,7 @@ def scan_archive_zip(
             "domains": sorted(agg_domains),
         },
     }
-    return findings, errors
+    return findings, analyzed_items, errors
 
 
 def scan_archive_rar(
@@ -370,7 +451,7 @@ def scan_archive_rar(
     passwords: Optional[List[str]] = None,
     non_interactive: bool = False,
     prompt_confirm: Optional[callable] = None,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
     passwords = passwords or []
     errors: List[Dict[str, Any]] = []
 
@@ -384,8 +465,8 @@ def scan_archive_rar(
         if non_interactive:
             errors.append(
                 {
-                    "code": "E_ARCHIVE_ENCRYPTED_PASSWORD_REQUIRED",
-                    "message": "Archive contains encrypted members; provide --password/--password-file (batch/non-interactive mode).",
+                    "code": "E_ARCHIVE_ENCRYPTED_MEMBERS_SKIPPED",
+                    "message": "Archive contains encrypted members; skipping them in non-interactive mode (no passwords provided).",
                     "archive_path": str(path),
                 }
             )
@@ -393,7 +474,12 @@ def scan_archive_rar(
             if prompt_confirm is None:
                 allow = True
             else:
-                allow = bool(prompt_confirm("Encrypted members detected. Continue scanning unencrypted members?", default=True))
+                allow = bool(
+                    prompt_confirm(
+                        f"Archive '{path.name}' contains encrypted members. Scan only unencrypted ones?",
+                        default=True,
+                    )
+                )
             if not allow:
                 errors.append(
                     {
@@ -404,14 +490,22 @@ def scan_archive_rar(
                 )
                 return (
                     {
-                        "archive": {"type": "rar", "member_count": len(members), "scanned_member_count": 0, "members_scanned": []},
+                        "archive": {
+                            "type": "rar",
+                            "member_count": len(members),
+                            "scanned_member_count": 0,
+                            "members_scanned": [],
+                        },
                         "iocs": {"urls": [], "ipv4": [], "domains": []},
                     },
+                    [],
                     errors,
                 )
 
     scanned: List[Dict[str, Any]] = []
+    analyzed_items: List[AnalyzedItem] = []
     agg_urls, agg_ipv4, agg_domains = set(), set(), set()
+    cumulative_bytes = 0
 
     count_scanned = 0
     for m in members:
@@ -419,6 +513,28 @@ def scan_archive_rar(
             continue
         if count_scanned >= limits.archive_max_members_scan:
             break
+        if cumulative_bytes >= limits.archive_max_cumulative_bytes:
+            errors.append(
+                {
+                    "code": "E_ARCHIVE_CUMULATIVE_LIMIT_REACHED",
+                    "message": f"Cumulative output bytes limit reached ({limits.archive_max_cumulative_bytes}). Skipping remaining members.",
+                    "archive_path": str(path),
+                }
+            )
+            break
+
+        if m.compressed_size and m.compressed_size > 0:
+            ratio = m.size / m.compressed_size
+            if ratio > limits.archive_max_decompressed_ratio:
+                errors.append(
+                    {
+                        "code": "E_ARCHIVE_MEMBER_SKIPPED_RATIO",
+                        "message": f"Member skipped due to high compression ratio ({ratio:.2f} > {limits.archive_max_decompressed_ratio}). Potential zip bomb.",
+                        "archive_path": str(path),
+                        "member_path": m.path,
+                    }
+                )
+                continue
 
         if m.encrypted and not passwords and non_interactive:
             errors.append(
@@ -432,11 +548,17 @@ def scan_archive_rar(
             continue
 
         data, truncated, read_errors = _try_rar_member_with_passwords(
-            path, m.path, max_bytes=limits.archive_max_member_bytes, passwords=passwords
+            path,
+            m.path,
+            max_bytes=limits.archive_max_member_bytes,
+            passwords=passwords,
+            timeout=limits.subprocess_timeout,
         )
         if read_errors:
             errors.extend(read_errors)
             continue
+
+        cumulative_bytes += len(data)
 
         member_hashes = _hash_bytes(data)
         member_findings, member_errs = scan_bytes_basic(data, limits=limits)
@@ -467,6 +589,21 @@ def scan_archive_rar(
             }
         )
 
+        analyzed_items.append(
+            AnalyzedItem(
+                path=m.path,
+                bytes_read=len(data),
+                hashes=member_hashes,
+                truncated=bool(truncated),
+                format="pe" if member_findings.get("pe", {}).get("present") else "unknown",
+                provenance=Provenance(
+                    data_source="7z",
+                    encrypted_detected=m.encrypted,
+                    encryption_handled=bool(len(data) > 0),
+                ),
+            )
+        )
+
         count_scanned += 1
         if truncated:
             errors.append(
@@ -477,6 +614,15 @@ def scan_archive_rar(
                     "member_path": m.path,
                 }
             )
+
+    if not scanned and members:
+        errors.append(
+            {
+                "code": "E_ARCHIVE_NO_MEMBERS_SCANNED",
+                "message": "No archive members were successfully scanned (all skipped or failed).",
+                "archive_path": str(path),
+            }
+        )
 
     findings = {
         "archive": {
@@ -491,7 +637,7 @@ def scan_archive_rar(
             "domains": sorted(agg_domains),
         },
     }
-    return findings, errors
+    return findings, analyzed_items, errors
 
 
 def scan_path_basic(
@@ -501,13 +647,25 @@ def scan_path_basic(
     passwords: Optional[List[str]] = None,
     non_interactive: bool = False,
     prompt_confirm: Optional[callable] = None,
-) -> Tuple[Dict[str, Any], List[Dict[str, Any]]]:
+) -> Tuple[Dict[str, Any], List[Dict[str, Any]], List[Dict[str, Any]]]:
     ftype = classify_basic(path)
 
     if ftype == "zip":
-        return scan_archive_zip(path, limits=limits, passwords=passwords, non_interactive=non_interactive, prompt_confirm=prompt_confirm)
+        return scan_archive_zip(
+            path,
+            limits=limits,
+            passwords=passwords,
+            non_interactive=non_interactive,
+            prompt_confirm=prompt_confirm,
+        )
     if ftype == "rar":
-        return scan_archive_rar(path, limits=limits, passwords=passwords, non_interactive=non_interactive, prompt_confirm=prompt_confirm)
+        return scan_archive_rar(
+            path,
+            limits=limits,
+            passwords=passwords,
+            non_interactive=non_interactive,
+            prompt_confirm=prompt_confirm,
+        )
 
     errors: List[Dict[str, Any]] = []
     data, truncated = read_file_bytes(path, max_bytes=limits.max_input_bytes)
@@ -528,4 +686,20 @@ def scan_path_basic(
         "truncated": bool(truncated),
         "bytes_read": len(data),
     }
-    return findings, errors
+
+    analyzed_items = [
+        AnalyzedItem(
+            path=path.name,
+            bytes_read=len(data),
+            hashes=_hash_bytes(data),
+            truncated=bool(truncated),
+            format="pe" if findings.get("pe", {}).get("present") else "unknown",
+            provenance=Provenance(
+                data_source="direct",
+                encrypted_detected=False,
+                encryption_handled=False,
+            ),
+        )
+    ]
+
+    return findings, analyzed_items, errors

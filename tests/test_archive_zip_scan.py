@@ -11,7 +11,11 @@ def test_scan_zip_aggregates_iocs(tmp_path: Path):
     with zipfile.ZipFile(zpath, "w", compression=zipfile.ZIP_DEFLATED) as z:
         z.writestr("benign.txt", "hello http://example.com 1.2.3.4")
 
-    findings, errors = scan_path_basic(zpath)
+    findings, items, errors = scan_path_basic(zpath)
+
+    assert len(items) == 1
+    assert items[0].path == "benign.txt"
+    assert items[0].provenance.data_source == "zipfile"
 
     assert "archive" in findings
     assert findings["archive"]["type"] == "zip"

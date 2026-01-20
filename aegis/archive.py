@@ -161,6 +161,7 @@ def read_zip_member_bytes(
 
     return b"", False, errors
 
+
 def list_rar_members_via_7z(path: Path) -> Tuple[List[ArchiveMember], List[Dict[str, Any]]]:
     errors: List[Dict[str, Any]] = []
     members: List[ArchiveMember] = []
@@ -273,6 +274,7 @@ def read_rar_member_bytes_via_7z(
     *,
     max_bytes: int,
     password: Optional[str] = None,
+    timeout: float = 30.0,
 ) -> Tuple[bytes, bool, List[Dict[str, Any]]]:
     if not _is_safe_member_path(member_path):
         return b"", False, [
@@ -301,14 +303,27 @@ def read_rar_member_bytes_via_7z(
 
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert proc.stdout is not None
-        data = proc.stdout.read(max_bytes + 1)
-        truncated = len(data) > max_bytes
-        if truncated:
-            data = data[:max_bytes]
-
-        stderr = (proc.stderr.read() if proc.stderr else b"").decode("utf-8", errors="ignore")
-        rc = proc.wait()
+        try:
+            # We use communicate with timeout for safety
+            stdout_data, stderr_data = proc.communicate(timeout=timeout)
+            data = stdout_data[:max_bytes + 1]
+            truncated = len(data) > max_bytes
+            if truncated:
+                data = data[:max_bytes]
+            stderr = stderr_data.decode("utf-8", errors="ignore")
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            # Clean up pipes
+            proc.communicate()
+            return b"", False, [
+                {
+                    "code": "E_7Z_TIMEOUT",
+                    "message": f"7z extraction timed out after {timeout}s.",
+                    "archive_path": str(path),
+                    "member_path": member_path,
+                }
+            ]
 
         if rc != 0:
             msg = stderr.strip()
@@ -336,7 +351,9 @@ def read_rar_member_bytes_via_7z(
             }
         ]
 
+
 AES_EXTRA_FIELD_ID = 0x9901
+
 
 def _zipinfo_has_aes_extra(info: zipfile.ZipInfo) -> bool:
     """
@@ -355,12 +372,14 @@ def _zipinfo_has_aes_extra(info: zipfile.ZipInfo) -> bool:
         i += data_size
     return False
 
+
 def read_zip_member_bytes_via_7z(
     path: Path,
     member_path: str,
     *,
     max_bytes: int,
     password: Optional[str] = None,
+    timeout: float = 30.0,
 ) -> Tuple[bytes, bool, List[Dict[str, Any]]]:
     if not _is_safe_member_path(member_path):
         return b"", False, [
@@ -389,14 +408,25 @@ def read_zip_member_bytes_via_7z(
 
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        assert proc.stdout is not None
-        data = proc.stdout.read(max_bytes + 1)
-        truncated = len(data) > max_bytes
-        if truncated:
-            data = data[:max_bytes]
-
-        stderr = (proc.stderr.read() if proc.stderr else b"").decode("utf-8", errors="ignore")
-        rc = proc.wait()
+        try:
+            stdout_data, stderr_data = proc.communicate(timeout=timeout)
+            data = stdout_data[:max_bytes + 1]
+            truncated = len(data) > max_bytes
+            if truncated:
+                data = data[:max_bytes]
+            stderr = stderr_data.decode("utf-8", errors="ignore")
+            rc = proc.returncode
+        except subprocess.TimeoutExpired:
+            proc.kill()
+            proc.communicate()
+            return b"", False, [
+                {
+                    "code": "E_7Z_TIMEOUT",
+                    "message": f"7z extraction timed out after {timeout}s.",
+                    "archive_path": str(path),
+                    "member_path": member_path,
+                }
+            ]
 
         if rc != 0:
             msg = stderr.strip()
